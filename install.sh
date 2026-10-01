@@ -96,6 +96,16 @@ container_build() {
   local src="$work/vibeshine" build="$work/build" payload="$work/payload"
   local -a pkgs=(@BUILD_PACKAGES@)
 
+  retry() {
+    local attempt
+    for attempt in 1 2 3 4; do
+      "$@" && return 0
+      echo "warn: attempt $attempt failed: $*" >&2
+      sleep $((attempt * 5))
+    done
+    "$@"
+  }
+
   echo "==> Installing build dependencies in the container"
   sudo pacman -Syu --needed --noconfirm "${pkgs[@]}"
 
@@ -130,8 +140,17 @@ container_build() {
       awk -v p="$path" '$2 == p { sub(/^submodule\./, "", $1); sub(/\.path$/, "", $1); print $1 }')
     [[ -n "$name" ]] && skip_cfg+=(-c "submodule.$name.update=none")
   done
-  git "${skip_cfg[@]}" submodule sync --recursive
-  git "${skip_cfg[@]}" submodule update --init --recursive --jobs 4
+  git "${skip_cfg[@]}" submodule sync
+  retry git "${skip_cfg[@]}" submodule update --init --jobs 4
+  # Recurse into nested submodules, except build-deps: its nested FFmpeg,
+  # x265 etc. are multi-GB source trees, while the build only needs the
+  # build-deps tag to download prebuilt FFmpeg.
+  local sub
+  while read -r sub; do
+    [[ "$sub" == third-party/build-deps ]] && continue
+    [[ -f "$sub/.gitmodules" ]] || continue
+    retry git -C "$sub" submodule update --init --recursive --jobs 4
+  done < <(git submodule status | awk '$1 !~ /^-/ { print $2 }')
 
   echo "==> Configuring the SteamOS bundle"
   # SteamOS's glibc is older than Arch's. Link libm/libmvec from the host (as
