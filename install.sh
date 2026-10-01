@@ -154,7 +154,7 @@ container_build() {
     retry git -C "$sub" submodule update --init --recursive --force --jobs 4
   done < <(git submodule status | awk '$1 !~ /^-/ { print $2 }')
   while read -r sub; do
-    if [[ -z "$(git -C "$sub" ls-files | head -n1)" ]] || ! git -C "$sub" diff --quiet; then
+    if [[ -z "$(git -C "$sub" ls-files | head -n1)" ]] || ! git -C "$sub" diff --quiet --ignore-submodules=all; then
       echo "error: submodule $sub is incomplete; re-run with --clean" >&2
       exit 1
     fi
