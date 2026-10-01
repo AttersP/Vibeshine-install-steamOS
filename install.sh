@@ -171,6 +171,12 @@ container_build() {
     fi
   done < <(git submodule status | awk '$1 !~ /^-/ { print $2 }')
 
+  echo "==> Applying build fixes for non-CUDA (Steam Deck) builds"
+  # Upstream references source::NVFBC outside its SUNSHINE_BUILD_CUDA guard.
+  # Only rewrites the unguarded form, so it is a no-op once fixed upstream.
+  perl -0pi -e 's/(bool pyrowave_capture_supported\(\) \{\n)([ \t]*)return !sources\[source::NVFBC\];\n/$1#ifdef SUNSHINE_BUILD_CUDA\n$2return !sources[source::NVFBC];\n#else\n$2return true;\n#endif\n/' \
+    src/platform/linux/misc.cpp
+
   echo "==> Configuring the SteamOS bundle"
   # SteamOS's glibc is older than Arch's. Link libm/libmvec from the host (as
   # upstream's SteamOS audit does) so the executable resolves on the Deck.
