@@ -46,6 +46,7 @@ BUILD_PACKAGES=(
   wayland wayland-protocols libdrm libva libcap libevdev libpipewire libpulse
   libx11 libxcb libxfixes libxrandr libxtst
   openssl curl sqlite miniupnpc opus numactl avahi libnotify libmfx glib2
+  mesa libpng libjpeg-turbo libwebp icu
 )
 
 usage() {
@@ -153,6 +154,13 @@ container_build() {
     [[ -f "$sub/.gitmodules" ]] || continue
     retry git -C "$sub" submodule update --init --recursive --force --jobs 4
   done < <(git submodule status | awk '$1 !~ /^-/ { print $2 }')
+  # From build-deps, only its Vulkan-Headers are needed (the FFmpeg it
+  # downloads prebuilt is compiled against exactly these headers).
+  local vk=third-party/FFmpeg/Vulkan-Headers
+  retry git -C third-party/build-deps submodule update --init --force --depth 1 -- "$vk" ||
+    retry git -C third-party/build-deps submodule update --init --force -- "$vk"
+  [[ -f "third-party/build-deps/$vk/include/vulkan/vulkan.h" ]] ||
+    { echo "error: build-deps Vulkan-Headers are missing; re-run with --clean" >&2; exit 1; }
   while read -r sub; do
     local first
     first=$(git -C "$sub" ls-files 2>/dev/null | head -n1) || true
@@ -179,7 +187,7 @@ container_build() {
     -D BUILD_DOCS=OFF \
     -D BUILD_TESTS=OFF \
     -D SUNSHINE_ENABLE_TRAY=OFF \
-    -D SUNSHINE_SYSTEM_VULKAN_HEADERS=ON \
+    -D SUNSHINE_SYSTEM_VULKAN_HEADERS=OFF \
     -D SUNSHINE_ENABLE_CUDA=OFF \
     -D SUNSHINE_ENABLE_DRM=OFF \
     -D SUNSHINE_PUBLISHER_NAME='Nonary' \
