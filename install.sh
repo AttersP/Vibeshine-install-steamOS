@@ -203,6 +203,31 @@ container_build() {
   echo "==> Building with $jobs jobs (this takes a while on a Deck)"
   cmake --build "$build" --parallel "$jobs"
   cmake --install "$build"
+
+  # Bundled libraries come from Arch, whose glibc is newer than SteamOS's.
+  # Drop any that need a newer glibc and fall back to SteamOS's own copy of
+  # the same soname (the host check afterwards verifies every symbol).
+  echo "==> Matching bundled libraries to the SteamOS glibc"
+  local host_glibc lib need soname
+  glibc_versions() { objdump -T "$1" 2>/dev/null | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' | sed 's/^GLIBC_//' | sort -uV || true; }
+  host_glibc=$(glibc_versions /run/host/usr/lib/libc.so.6 | tail -n1)
+  [[ -n "$host_glibc" ]] || { echo "error: could not read the SteamOS glibc version" >&2; exit 1; }
+  echo "    SteamOS glibc $host_glibc"
+  for lib in "$payload"/lib/*.so*; do
+    [[ -f "$lib" && ! -L "$lib" ]] || continue
+    need=$(glibc_versions "$lib" | tail -n1)
+    [[ -n "$need" ]] || continue
+    [[ "$(printf '%s\n' "$host_glibc" "$need" | sort -V | tail -n1)" == "$host_glibc" ]] && continue
+    soname=$(objdump -p "$lib" | awk '$1 == "SONAME" { print $2 }')
+    if [[ -n "$soname" && -e "/run/host/usr/lib/$soname" ]]; then
+      echo "    using SteamOS $soname (bundled copy needs glibc $need)"
+      find "$payload/lib" -maxdepth 1 -lname "$(basename -- "$lib")" -delete
+      rm -f -- "$lib" "$payload/lib/$soname"
+    else
+      echo "error: $(basename -- "$lib") needs glibc $need and SteamOS has no ${soname:-matching library}" >&2
+      exit 1
+    fi
+  done
   echo "==> Payload staged at $payload"
 }
 
