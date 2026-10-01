@@ -141,7 +141,9 @@ container_build() {
     [[ -n "$name" ]] && skip_cfg+=(-c "submodule.$name.update=none")
   done
   git "${skip_cfg[@]}" submodule sync
-  retry git "${skip_cfg[@]}" submodule update --init --jobs 4
+  # --force re-checks out submodules whose earlier fetch was interrupted
+  # (git otherwise skips them when HEAD already matches, leaving them empty).
+  retry git "${skip_cfg[@]}" submodule update --init --force --jobs 4
   # Recurse into nested submodules, except build-deps: its nested FFmpeg,
   # x265 etc. are multi-GB source trees, while the build only needs the
   # build-deps tag to download prebuilt FFmpeg.
@@ -149,7 +151,13 @@ container_build() {
   while read -r sub; do
     [[ "$sub" == third-party/build-deps ]] && continue
     [[ -f "$sub/.gitmodules" ]] || continue
-    retry git -C "$sub" submodule update --init --recursive --jobs 4
+    retry git -C "$sub" submodule update --init --recursive --force --jobs 4
+  done < <(git submodule status | awk '$1 !~ /^-/ { print $2 }')
+  while read -r sub; do
+    if [[ -z "$(git -C "$sub" ls-files | head -n1)" ]] || ! git -C "$sub" diff --quiet; then
+      echo "error: submodule $sub is incomplete; re-run with --clean" >&2
+      exit 1
+    fi
   done < <(git submodule status | awk '$1 !~ /^-/ { print $2 }')
 
   echo "==> Configuring the SteamOS bundle"
